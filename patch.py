@@ -1,8 +1,54 @@
-import os, glob, sys, re
+import os, glob, sys, re, struct, zlib
 
-print("[*] TNT V63 — stable crack + safe VN")
+print("[*] TNT V63 — icon + VN + stable crack")
 
-# ===== 1. IntegrityVerifier -> true =====
+# ===== Generate simple TNT-style PNG icon (no external deps) =====
+def write_png(path, size=192):
+    # solid red block with darker border + white TNT text approximation via pixels
+    w = h = size
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)  # filter none
+        for x in range(w):
+            # border gray
+            border = 8
+            if x < border or y < border or x >= w-border or y >= h-border:
+                r,g,b = 90, 90, 90
+            else:
+                # red TNT body
+                r,g,b = 200, 40, 40
+                # middle white band
+                band = h // 2
+                if abs(y - band) < h // 10:
+                    r,g,b = 230, 230, 230
+                # top fuse dark
+                if y < h // 4 and abs(x - w//2) < w // 8:
+                    r,g,b = 40, 40, 40
+            raw += bytes([r, g, b, 255])
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
+
+def install_icon():
+    os.makedirs("green/res/drawable", exist_ok=True)
+    write_png("/tmp/tnt_icon.png", 192)
+    for root, dirs, files in os.walk("green/res"):
+        for name in files:
+            if name in ("brand_logo.png", "modjav_logo.png"):
+                dest = os.path.join(root, name)
+                open(dest, "wb").write(open("/tmp/tnt_icon.png", "rb").read())
+                print("[OK] icon ->", dest)
+    # ensure brand_logo exists
+    dest = "green/res/drawable/brand_logo.png"
+    open(dest, "wb").write(open("/tmp/tnt_icon.png", "rb").read())
+    print("[OK] brand_logo.png")
+
+install_icon()
+
+# ===== SECURITY (same as working build) =====
 for pattern in ["green/smali/**/IntegrityVerifier.smali", "green/smali_classes*/**/IntegrityVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -15,7 +61,6 @@ for pattern in ["green/smali/**/IntegrityVerifier.smali", "green/smali_classes*/
             with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
             print("[OK] IntegrityVerifier")
 
-# ===== 2. ProtectedApplication trusted + require -> true =====
 for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classes*/**/ProtectedApplication.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -34,21 +79,14 @@ for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classe
         with open(p, "w") as f: f.write(c)
         print("[OK] ProtectedApplication")
 
-# ===== 3. Gate.grant — remove 5h limit, set long session =====
 for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
-        # Only neutralize the upper-bound check: j > 18000000
-        # Find const for 18000000 and make the condition always false-ish
-        # Safer: replace the throw path by making the limit huge
-        c2 = c.replace("const-wide/32 v0, 0x112a880", "const-wide v0, 0x757B12C00L")  # 18000000 -> ~1y
-        c2 = c2.replace("const-wide/32 v2, 0x112a880", "const-wide v2, 0x757B12C00L")
-        c2 = c2.replace("0x112a880", "0x757B12C00L")
+        c2 = c.replace("0x112a880", "0x757B12C00L")
         if c2 != c:
             with open(p, "w") as f: f.write(c2)
-            print("[OK] Gate limit raised")
+            print("[OK] Gate limit")
         else:
-            # fallback: full grant rewrite if const not found
             start = c.find(".method public static grant(Landroid/content/Context;JJ)V")
             if start != -1:
                 nextm = c.find("\n.method ", start + 10)
@@ -78,9 +116,8 @@ for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali
 .end method
 """
                 with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
-                print("[OK] Gate.grant rewritten")
+                print("[OK] Gate.grant")
 
-# ===== 4. TicketVerifier -> always long =====
 for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/TicketVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -105,7 +142,6 @@ for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/
             with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
             print("[OK] TicketVerifier")
 
-# ===== 5. LoginActivity.login force any key =====
 for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/LoginActivity.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -143,27 +179,25 @@ for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/L
 .end method
 """
             with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
-            print("[OK] LoginActivity.login")
+            print("[OK] LoginActivity")
 
-print("[*] Security OK")
-
-# ===== 6. Safe VN — only const-string, no resource attrs =====
+# ===== VN =====
 replacements = [
     ("Digite TNT e os seis números da key.", "Nhập key bất kỳ rồi bấm Vào Menu."),
     ("Validando sua key dentro do aplicativo…", "Đang xác thực key…"),
     ("Key recebida. Toque em Entrar no painel.", "Đã nhận key. Bấm Vào Menu."),
-    ("Confirmação inválida ou expirada. Toque em Entrar novamente.", "Xác nhận lỗi hoặc hết hạn. Thử lại."),
+    ("Confirmação inválida ou expirada. Toque em Entrar novamente.", "Xác nhận lỗi. Thử lại."),
     ("Validação cancelada. Você pode tentar novamente.", "Đã hủy. Thử lại."),
     ("Instale ou ative o Google Chrome para gerar sua key.", "Cần Chrome để tạo key."),
-    ("ENTRAR NO PAINEL", "VÀO MENU"),
-    ("GERAR KEY", "TẠO KEY"),
+    ("ENTRAR NO PAINEL", "▶  VÀO MENU"),
+    ("GERAR KEY", "✦  TẠO KEY"),
     ("Sejam bem-vindos ao TNT APK V63!", "Chào mừng TNT APK V63"),
     ("KEY ATIVA", "KEY ĐANG HOẠT ĐỘNG"),
     ("restantes", "còn lại"),
     ("Expira em", "Hết hạn lúc"),
     ("Key expirada. Gere uma nova key.", "Key hết hạn. Tạo key mới."),
     ("Acesso expirado.", "Truy cập hết hạn."),
-    ("Integridade inválida. Instale o APK original do criador.", "Lỗi tích hợp. Cài bản gốc."),
+    ("Integridade inválida. Instale o APK original do criador.", "Lỗi tích hợp."),
     ("Não foi possível validar. Confira sua conexão e tente novamente.", "Không xác thực được. Kiểm tra mạng."),
     ("Não foi possível abrir a tela principal.", "Không mở được màn hình chính."),
     ("Não foi possível abrir o link. Verifique seu navegador.", "Không mở được link."),
@@ -236,31 +270,25 @@ replacements = [
 def translate_const_strings(content, pairs):
     def replacer(m):
         full = m.group(0)
-        q1 = full.find('"')
-        q2 = full.rfind('"')
+        q1, q2 = full.find('"'), full.rfind('"')
         if q1 < 0 or q2 <= q1: return full
         prefix, s, suffix = full[:q1+1], full[q1+1:q2], full[q2:]
         for old, new in pairs:
-            if old in s:
-                s = s.replace(old, new)
+            if old in s: s = s.replace(old, new)
         return prefix + s + suffix
     return re.sub(r'const-string(?:/jumbo)?\s+v\d+,\s*".*?"', replacer, content)
 
 count = 0
 for root, dirs, files in os.walk("green"):
     for name in files:
-        if not name.endswith(".smali"):
-            continue
+        if not name.endswith(".smali"): continue
         full = os.path.join(root, name)
         try:
-            with open(full, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
+            with open(full, "r", encoding="utf-8", errors="ignore") as f: content = f.read()
             newc = translate_const_strings(content, replacements)
             if newc != content:
-                with open(full, "w", encoding="utf-8") as f:
-                    f.write(newc)
+                with open(full, "w", encoding="utf-8") as f: f.write(newc)
                 count += 1
-        except Exception:
-            pass
-print(f"[OK] Safe VN ({count} files)")
+        except Exception: pass
+print(f"[OK] VN ({count} files)")
 print("[*] Done")
