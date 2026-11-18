@@ -1,0 +1,75 @@
+name: TNT V63 - Prepare Vietnamese Localization
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract-localization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout localization branch
+        uses: actions/checkout@v4
+        with:
+          ref: vietnamese-translation-safe
+
+      - name: Verify source APK
+        run: |
+          test -s original.apk || { echo "original.apk is missing"; exit 1; }
+
+      - name: Install Apktool
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -o apktool
+          curl -fsSL https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.11.1.jar -o apktool.jar
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin/apktool
+          sudo mv apktool.jar /usr/local/bin/apktool.jar
+          apktool --version
+
+      - name: Decode APK resources (no authentication changes)
+        run: apktool d -f original.apk -o decoded
+
+      - name: Collect translatable strings
+        run: |
+          python3 - <<'PY'
+          import os, re, csv, xml.etree.ElementTree as ET
+          os.makedirs("localization", exist_ok=True)
+          rows = []
+          for root, _, files in os.walk("decoded/res"):
+              if not re.search(r"/values(?:-[^/]+)?$", root):
+                  continue
+              for name in files:
+                  if not name.endswith(".xml"):
+                      continue
+                  path = os.path.join(root, name)
+                  try:
+                      tree = ET.parse(path)
+                  except Exception:
+                      continue
+                  for node in tree.getroot():
+                      if node.tag not in ("string", "plurals", "string-array"):
+                          continue
+                      key = node.attrib.get("name", "")
+                      if not key or node.attrib.get("translatable", "true") == "false":
+                          continue
+                      value = "".join(node.itertext()).strip()
+                      if value:
+                          rows.append((os.path.relpath(path, "decoded"), node.tag, key, value))
+          with open("localization/strings-source.csv", "w", newline="", encoding="utf-8-sig") as f:
+              w = csv.writer(f)
+              w.writerow(["resource_file", "type", "name", "source_text", "vietnamese_translation"])
+              for row in rows:
+                  w.writerow([*row, ""])
+          print(f"Collected {len(rows)} resource entries.")
+          PY
+
+      - name: Upload localization source
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnt-v63-vietnamese-strings-source
+          path: localization/strings-source.csv
+          if-no-files-found: error
+          retention-days: 14
