@@ -1,60 +1,68 @@
-import os, glob, sys, re, struct, zlib
+import os, glob, sys, re, struct, zlib, shutil
 
-print("[*] TNT V63 — fixed Gate + icon + VN")
+print("[*] TNT V63 — real icon + full VN + minecraft feel")
 
-def write_png(path, size=192):
+def write_fallback_png(path, size=192):
     w = h = size
     raw = bytearray()
     for y in range(h):
         raw.append(0)
         for x in range(w):
-            border = 8
-            if x < border or y < border or x >= w-border or y >= h-border:
-                r,g,b = 90, 90, 90
+            # minecraft-ish red TNT with gray border and white band
+            bx, by = x * 16 // w, y * 16 // h
+            if bx == 0 or by == 0 or bx == 15 or by == 15:
+                r,g,b = 100,100,100
+            elif 6 <= by <= 9:
+                r,g,b = 240,240,240
+            elif by <= 3 and 6 <= bx <= 9:
+                r,g,b = 50,50,50
             else:
-                r,g,b = 200, 40, 40
-                band = h // 2
-                if abs(y - band) < h // 10:
-                    r,g,b = 230, 230, 230
-                if y < h // 4 and abs(x - w//2) < w // 8:
-                    r,g,b = 40, 40, 40
-            raw += bytes([r, g, b, 255])
+                r,g,b = 210, 35, 35
+            raw += bytes([r,g,b,255])
     def chunk(tag, data):
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
     png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
-    with open(path, "wb") as f:
-        f.write(png)
+    open(path,"wb").write(png)
 
 def install_icon():
     os.makedirs("green/res/drawable", exist_ok=True)
-    write_png("/tmp/tnt_icon.png", 192)
-    data = open("/tmp/tnt_icon.png", "rb").read()
+    src = None
+    for cand in ["tnt_icon.png", "tnt_icon.jpg", "tnt_icon.jfif", "images.jfif", "icon.png"]:
+        if os.path.isfile(cand):
+            src = cand
+            break
+    if src:
+        # if jfif/jpg, try copy as png name (apktool may still accept)
+        data = open(src,"rb").read()
+        print("[OK] using real icon file:", src, len(data))
+    else:
+        write_fallback_png("/tmp/tnt_icon.png", 192)
+        data = open("/tmp/tnt_icon.png","rb").read()
+        print("[WARN] no tnt_icon.png in repo — using fallback")
     for root, dirs, files in os.walk("green/res"):
         for name in files:
             if name in ("brand_logo.png", "modjav_logo.png"):
-                dest = os.path.join(root, name)
-                open(dest, "wb").write(data)
-                print("[OK] icon ->", dest)
+                open(os.path.join(root, name), "wb").write(data)
+                print("[OK] icon ->", os.path.join(root, name))
     open("green/res/drawable/brand_logo.png", "wb").write(data)
-    print("[OK] brand_logo.png")
+    print("[OK] brand_logo set")
 
 install_icon()
 
-# ===== IntegrityVerifier =====
+# ===== SECURITY =====
 for pattern in ["green/smali/**/IntegrityVerifier.smali", "green/smali_classes*/**/IntegrityVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
         start = c.find(".method static verify(Ljava/io/File;[[BLjava/lang/String;)Z")
         if start != -1:
-            nextm = c.find("\n.method ", start + 10)
+            nextm = c.find("\n.method ", start+10)
             if nextm == -1: nextm = len(c)
             end = c.rfind(".end method", start, nextm)
             new = ".method static verify(Ljava/io/File;[[BLjava/lang/String;)Z\n    .registers 3\n    const/4 v0, 0x1\n    return v0\n.end method\n"
-            with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] IntegrityVerifier")
 
-# ===== ProtectedApplication =====
 for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classes*/**/ProtectedApplication.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -66,20 +74,19 @@ for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classe
 ]:
             start = c.find(sig)
             if start != -1:
-                nextm = c.find("\n.method ", start + 10)
+                nextm = c.find("\n.method ", start+10)
                 if nextm == -1: nextm = len(c)
                 end = c.rfind(".end method", start, nextm)
-                c = c[:start] + body + c[end+len(".end method"):]
-        with open(p, "w") as f: f.write(c)
+                c = c[:start]+body+c[end+len(".end method"):]
+        open(p,"w").write(c)
         print("[OK] ProtectedApplication")
 
-# ===== Gate.grant ONLY full rewrite (no string replace of hex) =====
 for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
         start = c.find(".method public static grant(Landroid/content/Context;JJ)V")
         if start != -1:
-            nextm = c.find("\n.method ", start + 10)
+            nextm = c.find("\n.method ", start+10)
             if nextm == -1: nextm = len(c)
             end = c.rfind(".end method", start, nextm)
             new = """.method public static grant(Landroid/content/Context;JJ)V
@@ -89,19 +96,15 @@ for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali
             Ljava/lang/Exception;
         }
     .end annotation
-
     invoke-virtual {p0}, Landroid/content/Context;->getApplicationContext()Landroid/content/Context;
     move-result-object v0
     sput-object v0, Lcom/zyon/jetkey/Gate;->context:Landroid/content/Context;
-
     invoke-static {}, Landroid/os/SystemClock;->elapsedRealtime()J
     move-result-wide v0
     const-wide v2, 0x757B12C00L
     add-long/2addr v0, v2
     sput-wide v0, Lcom/zyon/jetkey/Gate;->until:J
-
     sput-wide p3, Lcom/zyon/jetkey/Gate;->expires:J
-
     sget-object v0, Lcom/zyon/jetkey/Gate;->handler:Landroid/os/Handler;
     sget-object v1, Lcom/zyon/jetkey/Gate;->tick:Ljava/lang/Runnable;
     invoke-virtual {v0, v1}, Landroid/os/Handler;->removeCallbacks(Ljava/lang/Runnable;)V
@@ -109,10 +112,9 @@ for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali
     return-void
 .end method
 """
-            with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] Gate.grant")
 
-# ===== TicketVerifier =====
 for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/TicketVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -120,7 +122,7 @@ for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/
         if start == -1:
             start = c.find(".method static verify(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)J")
         if start != -1:
-            nextm = c.find("\n.method ", start + 10)
+            nextm = c.find("\n.method ", start+10)
             if nextm == -1: nextm = len(c)
             end = c.rfind(".end method", start, nextm)
             new = """.method public static verify(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)J
@@ -134,16 +136,15 @@ for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/
     return-wide v0
 .end method
 """
-            with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] TicketVerifier")
 
-# ===== LoginActivity.login =====
 for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/LoginActivity.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
         start = c.find(".method private login()V")
         if start != -1:
-            nextm = c.find("\n.method ", start + 10)
+            nextm = c.find("\n.method ", start+10)
             if nextm == -1: nextm = len(c)
             end = c.rfind(".end method", start, nextm)
             new = """.method private login()V
@@ -174,29 +175,55 @@ for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/L
     return-void
 .end method
 """
-            with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] LoginActivity")
 
-# ===== VN =====
+# ===== Manifest label =====
+mf = "green/AndroidManifest.xml"
+if os.path.isfile(mf):
+    with open(mf, encoding="utf-8", errors="ignore") as f: m = f.read()
+    m2 = m.replace('android:label="TNT APK V63 "', 'android:label="TNT Minecraft V63"')
+    m2 = m2.replace('android:label="TNT APK V63"', 'android:label="TNT Minecraft V63"')
+    if m2 != m:
+        open(mf,"w").write(m2)
+        print("[OK] app label")
+
+# ===== FULL VN =====
 replacements = [
+    ("ENTRAR NO PAINEL", "▶  VÀO MENU"),
+    ("GERAR KEY GRÁTIS", "✦  TẠO KEY"),
+    ("GERAR KEY", "✦  TẠO KEY"),
+    ("Sejam bem-vindos ao TNT APK V63!", "Chào mừng TNT Minecraft V63!"),
     ("Digite TNT e os seis números da key.", "Nhập key bất kỳ rồi bấm Vào Menu."),
+    ("Digite os seis números", "Nhập key"),
     ("Validando sua key dentro do aplicativo…", "Đang xác thực key…"),
+    ("Validando sua key dentro do aplicativo", "Đang xác thực key"),
     ("Key recebida. Toque em Entrar no painel.", "Đã nhận key. Bấm Vào Menu."),
-    ("Confirmação inválida ou expirada. Toque em Entrar novamente.", "Xác nhận lỗi. Thử lại."),
+    ("Confirmação inválida ou expirada. Toque em Entrar novamente.", "Xác nhận lỗi hoặc hết hạn. Thử lại."),
     ("Validação cancelada. Você pode tentar novamente.", "Đã hủy. Thử lại."),
     ("Instale ou ative o Google Chrome para gerar sua key.", "Cần Chrome để tạo key."),
-    ("ENTRAR NO PAINEL", "▶  VÀO MENU"),
-    ("GERAR KEY", "✦  TẠO KEY"),
-    ("Sejam bem-vindos ao TNT APK V63!", "Chào mừng TNT APK V63"),
     ("KEY ATIVA", "KEY ĐANG HOẠT ĐỘNG"),
     ("restantes", "còn lại"),
     ("Expira em", "Hết hạn lúc"),
     ("Key expirada. Gere uma nova key.", "Key hết hạn. Tạo key mới."),
     ("Acesso expirado.", "Truy cập hết hạn."),
-    ("Integridade inválida. Instale o APK original do criador.", "Lỗi tích hợp."),
+    ("Integridade inválida. Instale o APK original do criador.", "Lỗi tích hợp. Cài bản gốc."),
+    ("Integridade inválida", "Lỗi tích hợp"),
+    ("Instale o APK original", "Cài APK gốc"),
     ("Não foi possível validar. Confira sua conexão e tente novamente.", "Không xác thực được. Kiểm tra mạng."),
     ("Não foi possível abrir a tela principal.", "Không mở được màn hình chính."),
     ("Não foi possível abrir o link. Verifique seu navegador.", "Không mở được link."),
+    ("Não foi possível abrir o canal. Instale o WhatsApp ou um navegador e tente novamente.", "Không mở được kênh. Cài WhatsApp hoặc trình duyệt."),
+    ("aberto. Depois, volte ao aplicativo para acessar o painel.", "mở. Sau đó quay lại app để vào menu."),
+    ("PAREAMENTO VIA ADB", "GHÉP NỐI ADB"),
+    ("Pareamento", "Ghép nối"),
+    ("Parear", "Ghép nối"),
+    ("Depuração sem fio", "Gỡ lỗi không dây"),
+    ("Código de pareamento", "Mã ghép nối"),
+    ("CANAL DE ATUALIZAÇÕES", "KÊNH CẬP NHẬT"),
+    ("CANAL DE ATUALIZA", "KÊNH CẬP NHẬT"),
+    ("NATAL TNT", "NOEL TNT"),
+    ("Seu Natal TNT.", "Noel TNT của bạn."),
     ("Atualização disponível", "Có bản cập nhật"),
     ("Atualizar", "Cập nhật"),
     ("Sair", "Thoát"),
@@ -219,10 +246,6 @@ replacements = [
     ("Cancelar", "Hủy"),
     ("Confirmar", "Xác nhận"),
     ("Fechar", "Đóng"),
-    ("Pareamento", "Ghép nối"),
-    ("Parear", "Ghép nối"),
-    ("Depuração sem fio", "Gỡ lỗi không dây"),
-    ("Código de pareamento", "Mã ghép nối"),
     ("Módulo", "Module"),
     ("Instalando módulo", "Đang cài module"),
     ("Módulo instalado", "Module đã cài"),
@@ -250,7 +273,7 @@ replacements = [
     ("Acesso", "Truy cập"),
     ("Licença", "Key"),
     ("Licenca", "Key"),
-    ("Painel", "Bảng điều khiển"),
+    ("Painel", "Menu"),
     ("Versão", "Phiên bản"),
     ("Sobre", "Giới thiệu"),
     ("Ajuda", "Trợ giúp"),
@@ -261,6 +284,7 @@ replacements = [
     ("Atualizado", "Đã cập nhật"),
     ("Novo", "Mới"),
     ("Estável", "Ổn định"),
+    ("TNT APK V63", "TNT Minecraft V63"),
 ]
 
 def translate_const_strings(content, pairs):
@@ -283,7 +307,7 @@ for root, dirs, files in os.walk("green"):
             with open(full, "r", encoding="utf-8", errors="ignore") as f: content = f.read()
             newc = translate_const_strings(content, replacements)
             if newc != content:
-                with open(full, "w", encoding="utf-8") as f: f.write(newc)
+                open(full,"w",encoding="utf-8").write(newc)
                 count += 1
         except Exception: pass
 print(f"[OK] VN ({count} files)")
