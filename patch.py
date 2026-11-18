@@ -1,6 +1,6 @@
 import os, glob, sys, re, struct, zlib, subprocess
 
-print("[*] TNT V63 — real icon convert + VN + crack")
+print("[*] TNT V63 — no WhatsApp popup + full VN + minecraft feel")
 
 def write_fallback_png(path, size=192):
     w = h = size
@@ -25,23 +25,19 @@ def write_fallback_png(path, size=192):
     open(path,"wb").write(png)
 
 def jpeg_to_png(src, dest, size=192):
-    """Convert JPEG/JFIF to real PNG using pillow if available, else ImageMagick, else fallback."""
     try:
         from PIL import Image
-        im = Image.open(src).convert("RGBA")
-        im = im.resize((size, size), Image.LANCZOS)
+        im = Image.open(src).convert("RGBA").resize((size, size), Image.LANCZOS)
         im.save(dest, format="PNG", optimize=True)
-        print("[OK] converted with PIL", src, "->", dest)
+        print("[OK] PIL convert", src)
         return True
     except Exception as e:
         print("[WARN] PIL", e)
     try:
-        subprocess.check_call(["convert", src, "-resize", "%dx%d" % (size, size), dest], stderr=subprocess.DEVNULL)
-        print("[OK] converted with ImageMagick")
+        subprocess.check_call(["convert", src, "-resize", "%dx%d" % (size, size), dest])
         return True
-    except Exception as e:
-        print("[WARN] convert", e)
-    return False
+    except Exception:
+        return False
 
 def install_icon():
     os.makedirs("green/res/drawable", exist_ok=True)
@@ -53,26 +49,22 @@ def install_icon():
             break
     ok = False
     if src:
-        # check signature
         head = open(src, "rb").read(8)
         if head[:8] == b"\x89PNG\r\n\x1a\n":
             open(out, "wb").write(open(src, "rb").read())
             ok = True
-            print("[OK] already PNG", src)
         else:
             ok = jpeg_to_png(src, out, 192)
     if not ok:
         write_fallback_png(out, 192)
-        print("[WARN] using fallback icon")
     data = open(out, "rb").read()
-    assert data[:8] == b"\x89PNG\r\n\x1a\n", "not a real PNG"
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
     for root, dirs, files in os.walk("green/res"):
         for name in files:
             if name in ("brand_logo.png", "modjav_logo.png"):
                 open(os.path.join(root, name), "wb").write(data)
-                print("[OK] icon ->", os.path.join(root, name))
+                print("[OK] icon", name)
     open("green/res/drawable/brand_logo.png", "wb").write(data)
-    print("[OK] brand_logo set, size", len(data))
 
 install_icon()
 
@@ -204,6 +196,44 @@ for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/L
             open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] LoginActivity")
 
+# ===== DISABLE WhatsApp / Channel popup =====
+for pattern in ["green/smali/**/ChannelNotice.smali", "green/smali_classes*/**/ChannelNotice.smali"]:
+    for p in glob.glob(pattern, recursive=True):
+        with open(p) as f: c = f.read()
+        start = c.find(".method public static show(Landroid/app/Activity;)V")
+        if start != -1:
+            nextm = c.find("\n.method ", start+10)
+            if nextm == -1: nextm = len(c)
+            end = c.rfind(".end method", start, nextm)
+            new = ".method public static show(Landroid/app/Activity;)V\n    .registers 1\n    return-void\n.end method\n"
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
+            print("[OK] ChannelNotice.show disabled")
+
+for pattern in ["green/smali/**/JoinChannel.smali", "green/smali_classes*/**/JoinChannel.smali"]:
+    for p in glob.glob(pattern, recursive=True):
+        with open(p) as f: c = f.read()
+        start = c.find(".method public run()V")
+        if start != -1:
+            nextm = c.find("\n.method ", start+10)
+            if nextm == -1: nextm = len(c)
+            end = c.rfind(".end method", start, nextm)
+            new = ".method public run()V\n    .registers 1\n    return-void\n.end method\n"
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
+            print("[OK] JoinChannel.run disabled")
+
+# also ChannelNoticeClick if exists
+for pattern in ["green/smali/**/ChannelNoticeClick.smali", "green/smali_classes*/**/ChannelNoticeClick.smali"]:
+    for p in glob.glob(pattern, recursive=True):
+        with open(p) as f: c = f.read()
+        start = c.find(".method public onClick(Landroid/view/View;)V")
+        if start != -1:
+            nextm = c.find("\n.method ", start+10)
+            if nextm == -1: nextm = len(c)
+            end = c.rfind(".end method", start, nextm)
+            new = ".method public onClick(Landroid/view/View;)V\n    .registers 2\n    return-void\n.end method\n"
+            open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
+            print("[OK] ChannelNoticeClick disabled")
+
 mf = "green/AndroidManifest.xml"
 if os.path.isfile(mf):
     with open(mf, encoding="utf-8", errors="ignore") as f: m = f.read()
@@ -211,13 +241,15 @@ if os.path.isfile(mf):
     m2 = m2.replace('android:label="TNT APK V63"', 'android:label="TNT Minecraft V63"')
     if m2 != m:
         open(mf,"w").write(m2)
-        print("[OK] app label")
+        print("[OK] label")
 
+# ===== FULL VN =====
 replacements = [
     ("ENTRAR NO PAINEL", "▶  VÀO MENU"),
     ("GERAR KEY GRÁTIS", "✦  TẠO KEY"),
     ("GERAR KEY", "✦  TẠO KEY"),
     ("Sejam bem-vindos ao TNT APK V63!", "Chào mừng TNT Minecraft V63!"),
+    ("Ao tocar em OK, nosso canal oficial do WhatsApp será aberto. Depois, volte ao aplicativo para acessar o painel.", "Nhấn OK để tiếp tục."),
     ("Digite TNT e os seis números da key.", "Nhập key bất kỳ rồi bấm Vào Menu."),
     ("Digite os seis números", "Nhập key"),
     ("Validando sua key dentro do aplicativo…", "Đang xác thực key…"),
@@ -237,8 +269,9 @@ replacements = [
     ("Não foi possível validar. Confira sua conexão e tente novamente.", "Không xác thực được. Kiểm tra mạng."),
     ("Não foi possível abrir a tela principal.", "Không mở được màn hình chính."),
     ("Não foi possível abrir o link. Verifique seu navegador.", "Không mở được link."),
-    ("Não foi possível abrir o canal. Instale o WhatsApp ou um navegador e tente novamente.", "Không mở được kênh. Cài WhatsApp hoặc trình duyệt."),
-    ("aberto. Depois, volte ao aplicativo para acessar o painel.", "mở. Sau đó quay lại app để vào menu."),
+    ("Não foi possível abrir o canal. Instale o WhatsApp ou um navegador e tente novamente.", "Không mở được kênh."),
+    ("No se pudo abrir el canal. Instala WhatsApp o usa el navegador.", "Không mở được kênh."),
+    ("aberto. Depois, volte ao aplicativo para acessar o painel.", "mở. Sau đó quay lại app."),
     ("PAREAMENTO VIA ADB", "GHÉP NỐI ADB"),
     ("Pareamento", "Ghép nối"),
     ("Parear", "Ghép nối"),
@@ -248,6 +281,7 @@ replacements = [
     ("CANAL DE ATUALIZA", "KÊNH CẬP NHẬT"),
     ("NATAL TNT", "NOEL TNT"),
     ("Seu Natal TNT.", "Noel TNT của bạn."),
+    ("Boas-vindas ao Natal TNT!", "Chào mừng Noel TNT!"),
     ("Atualização disponível", "Có bản cập nhật"),
     ("Atualizar", "Cập nhật"),
     ("Sair", "Thoát"),
@@ -309,6 +343,8 @@ replacements = [
     ("Novo", "Mới"),
     ("Estável", "Ổn định"),
     ("TNT APK V63", "TNT Minecraft V63"),
+    ("CONECTAR", "KẾT NỐI"),
+    ("OK", "OK"),
 ]
 
 def translate_const_strings(content, pairs):
