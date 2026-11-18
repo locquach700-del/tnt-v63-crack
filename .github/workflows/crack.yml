@@ -18,12 +18,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install apktool
+      - name: Install tools
         run: |
           wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O /usr/local/bin/apktool.jar
           echo '#!/bin/sh' > /usr/local/bin/apktool
           echo 'java -jar /usr/local/bin/apktool.jar "$@"' >> /usr/local/bin/apktool
           chmod +x /usr/local/bin/apktool
+          pip3 install --quiet pillow
 
       - name: Check APK
         run: |
@@ -32,6 +33,7 @@ jobs:
             exit 1
           fi
           ls -lh original.apk
+          ls -lh tnt_icon.png 2>/dev/null || true
 
       - name: Decode
         run: apktool d -f original.apk -o green
