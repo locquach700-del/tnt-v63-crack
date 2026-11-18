@@ -1,27 +1,21 @@
 import os, glob, sys, re, struct, zlib
 
-print("[*] TNT V63 — icon + VN + stable crack")
+print("[*] TNT V63 — fixed Gate + icon + VN")
 
-# ===== Generate simple TNT-style PNG icon (no external deps) =====
 def write_png(path, size=192):
-    # solid red block with darker border + white TNT text approximation via pixels
     w = h = size
     raw = bytearray()
     for y in range(h):
-        raw.append(0)  # filter none
+        raw.append(0)
         for x in range(w):
-            # border gray
             border = 8
             if x < border or y < border or x >= w-border or y >= h-border:
                 r,g,b = 90, 90, 90
             else:
-                # red TNT body
                 r,g,b = 200, 40, 40
-                # middle white band
                 band = h // 2
                 if abs(y - band) < h // 10:
                     r,g,b = 230, 230, 230
-                # top fuse dark
                 if y < h // 4 and abs(x - w//2) < w // 8:
                     r,g,b = 40, 40, 40
             raw += bytes([r, g, b, 255])
@@ -35,20 +29,19 @@ def write_png(path, size=192):
 def install_icon():
     os.makedirs("green/res/drawable", exist_ok=True)
     write_png("/tmp/tnt_icon.png", 192)
+    data = open("/tmp/tnt_icon.png", "rb").read()
     for root, dirs, files in os.walk("green/res"):
         for name in files:
             if name in ("brand_logo.png", "modjav_logo.png"):
                 dest = os.path.join(root, name)
-                open(dest, "wb").write(open("/tmp/tnt_icon.png", "rb").read())
+                open(dest, "wb").write(data)
                 print("[OK] icon ->", dest)
-    # ensure brand_logo exists
-    dest = "green/res/drawable/brand_logo.png"
-    open(dest, "wb").write(open("/tmp/tnt_icon.png", "rb").read())
+    open("green/res/drawable/brand_logo.png", "wb").write(data)
     print("[OK] brand_logo.png")
 
 install_icon()
 
-# ===== SECURITY (same as working build) =====
+# ===== IntegrityVerifier =====
 for pattern in ["green/smali/**/IntegrityVerifier.smali", "green/smali_classes*/**/IntegrityVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -61,6 +54,7 @@ for pattern in ["green/smali/**/IntegrityVerifier.smali", "green/smali_classes*/
             with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
             print("[OK] IntegrityVerifier")
 
+# ===== ProtectedApplication =====
 for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classes*/**/ProtectedApplication.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -79,35 +73,35 @@ for pattern in ["green/smali/**/ProtectedApplication.smali", "green/smali_classe
         with open(p, "w") as f: f.write(c)
         print("[OK] ProtectedApplication")
 
+# ===== Gate.grant ONLY full rewrite (no string replace of hex) =====
 for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
-        c2 = c.replace("0x112a880", "0x757B12C00L")
-        if c2 != c:
-            with open(p, "w") as f: f.write(c2)
-            print("[OK] Gate limit")
-        else:
-            start = c.find(".method public static grant(Landroid/content/Context;JJ)V")
-            if start != -1:
-                nextm = c.find("\n.method ", start + 10)
-                if nextm == -1: nextm = len(c)
-                end = c.rfind(".end method", start, nextm)
-                new = """.method public static grant(Landroid/content/Context;JJ)V
+        start = c.find(".method public static grant(Landroid/content/Context;JJ)V")
+        if start != -1:
+            nextm = c.find("\n.method ", start + 10)
+            if nextm == -1: nextm = len(c)
+            end = c.rfind(".end method", start, nextm)
+            new = """.method public static grant(Landroid/content/Context;JJ)V
     .registers 6
     .annotation system Ldalvik/annotation/Throws;
         value = {
             Ljava/lang/Exception;
         }
     .end annotation
+
     invoke-virtual {p0}, Landroid/content/Context;->getApplicationContext()Landroid/content/Context;
     move-result-object v0
     sput-object v0, Lcom/zyon/jetkey/Gate;->context:Landroid/content/Context;
+
     invoke-static {}, Landroid/os/SystemClock;->elapsedRealtime()J
     move-result-wide v0
     const-wide v2, 0x757B12C00L
     add-long/2addr v0, v2
     sput-wide v0, Lcom/zyon/jetkey/Gate;->until:J
+
     sput-wide p3, Lcom/zyon/jetkey/Gate;->expires:J
+
     sget-object v0, Lcom/zyon/jetkey/Gate;->handler:Landroid/os/Handler;
     sget-object v1, Lcom/zyon/jetkey/Gate;->tick:Ljava/lang/Runnable;
     invoke-virtual {v0, v1}, Landroid/os/Handler;->removeCallbacks(Ljava/lang/Runnable;)V
@@ -115,9 +109,10 @@ for pattern in ["green/smali/**/Gate.smali", "green/smali_classes*/**/Gate.smali
     return-void
 .end method
 """
-                with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
-                print("[OK] Gate.grant")
+            with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
+            print("[OK] Gate.grant")
 
+# ===== TicketVerifier =====
 for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/TicketVerifier.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
@@ -142,6 +137,7 @@ for pattern in ["green/smali/**/TicketVerifier.smali", "green/smali_classes*/**/
             with open(p, "w") as f: f.write(c[:start] + new + c[end+len(".end method"):])
             print("[OK] TicketVerifier")
 
+# ===== LoginActivity.login =====
 for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/LoginActivity.smali"]:
     for p in glob.glob(pattern, recursive=True):
         with open(p) as f: c = f.read()
