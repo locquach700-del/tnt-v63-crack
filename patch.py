@@ -1,6 +1,6 @@
-import os, glob, sys, re, struct, zlib, shutil
+import os, glob, sys, re, struct, zlib, subprocess
 
-print("[*] TNT V63 — real icon + full VN + minecraft feel")
+print("[*] TNT V63 — real icon convert + VN + crack")
 
 def write_fallback_png(path, size=192):
     w = h = size
@@ -8,7 +8,6 @@ def write_fallback_png(path, size=192):
     for y in range(h):
         raw.append(0)
         for x in range(w):
-            # minecraft-ish red TNT with gray border and white band
             bx, by = x * 16 // w, y * 16 // h
             if bx == 0 or by == 0 or bx == 15 or by == 15:
                 r,g,b = 100,100,100
@@ -25,28 +24,55 @@ def write_fallback_png(path, size=192):
     png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b"")
     open(path,"wb").write(png)
 
+def jpeg_to_png(src, dest, size=192):
+    """Convert JPEG/JFIF to real PNG using pillow if available, else ImageMagick, else fallback."""
+    try:
+        from PIL import Image
+        im = Image.open(src).convert("RGBA")
+        im = im.resize((size, size), Image.LANCZOS)
+        im.save(dest, format="PNG", optimize=True)
+        print("[OK] converted with PIL", src, "->", dest)
+        return True
+    except Exception as e:
+        print("[WARN] PIL", e)
+    try:
+        subprocess.check_call(["convert", src, "-resize", "%dx%d" % (size, size), dest], stderr=subprocess.DEVNULL)
+        print("[OK] converted with ImageMagick")
+        return True
+    except Exception as e:
+        print("[WARN] convert", e)
+    return False
+
 def install_icon():
     os.makedirs("green/res/drawable", exist_ok=True)
+    out = "/tmp/tnt_real.png"
     src = None
     for cand in ["tnt_icon.png", "tnt_icon.jpg", "tnt_icon.jfif", "images.jfif", "icon.png"]:
         if os.path.isfile(cand):
             src = cand
             break
+    ok = False
     if src:
-        # if jfif/jpg, try copy as png name (apktool may still accept)
-        data = open(src,"rb").read()
-        print("[OK] using real icon file:", src, len(data))
-    else:
-        write_fallback_png("/tmp/tnt_icon.png", 192)
-        data = open("/tmp/tnt_icon.png","rb").read()
-        print("[WARN] no tnt_icon.png in repo — using fallback")
+        # check signature
+        head = open(src, "rb").read(8)
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            open(out, "wb").write(open(src, "rb").read())
+            ok = True
+            print("[OK] already PNG", src)
+        else:
+            ok = jpeg_to_png(src, out, 192)
+    if not ok:
+        write_fallback_png(out, 192)
+        print("[WARN] using fallback icon")
+    data = open(out, "rb").read()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "not a real PNG"
     for root, dirs, files in os.walk("green/res"):
         for name in files:
             if name in ("brand_logo.png", "modjav_logo.png"):
                 open(os.path.join(root, name), "wb").write(data)
                 print("[OK] icon ->", os.path.join(root, name))
     open("green/res/drawable/brand_logo.png", "wb").write(data)
-    print("[OK] brand_logo set")
+    print("[OK] brand_logo set, size", len(data))
 
 install_icon()
 
@@ -178,7 +204,6 @@ for pattern in ["green/smali/**/LoginActivity.smali", "green/smali_classes*/**/L
             open(p,"w").write(c[:start]+new+c[end+len(".end method"):])
             print("[OK] LoginActivity")
 
-# ===== Manifest label =====
 mf = "green/AndroidManifest.xml"
 if os.path.isfile(mf):
     with open(mf, encoding="utf-8", errors="ignore") as f: m = f.read()
@@ -188,7 +213,6 @@ if os.path.isfile(mf):
         open(mf,"w").write(m2)
         print("[OK] app label")
 
-# ===== FULL VN =====
 replacements = [
     ("ENTRAR NO PAINEL", "▶  VÀO MENU"),
     ("GERAR KEY GRÁTIS", "✦  TẠO KEY"),
