@@ -1,0 +1,66 @@
+name: Build TNT V63 Cracked
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - original.apk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install apktool
+        run: |
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar -O /usr/local/bin/apktool.jar
+          echo '#!/bin/sh' > /usr/local/bin/apktool
+          echo 'java -jar /usr/local/bin/apktool.jar "$@"' >> /usr/local/bin/apktool
+          chmod +x /usr/local/bin/apktool
+
+      - name: Check APK
+        run: |
+          if [ ! -f original.apk ]; then
+            echo "Upload original.apk first"
+            exit 1
+          fi
+          ls -lh original.apk
+
+      - name: Decode
+        run: apktool d -f original.apk -o green
+
+      - name: Patch
+        run: python3 patch.py
+
+      - name: Build
+        run: apktool b green -o unsigned.apk
+
+      - name: Sign
+        run: |
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" || true
+          if command -v zipalign >/dev/null; then
+            zipalign -f -p 4 unsigned.apk aligned.apk
+          else
+            cp unsigned.apk aligned.apk
+          fi
+          if command -v apksigner >/dev/null; then
+            apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android --out TNT_V63_CRACKED.apk aligned.apk
+          else
+            jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore debug.keystore -storepass android -keypass android aligned.apk androiddebugkey
+            mv aligned.apk TNT_V63_CRACKED.apk
+          fi
+          ls -lh TNT_V63_CRACKED.apk
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: TNT_V63_CRACKED
+          path: TNT_V63_CRACKED.apk
+          retention-days: 7
